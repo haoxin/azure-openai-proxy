@@ -25,5 +25,8 @@ func registerRoute(r *gin.Engine) {
 		apiBasedRouter.Any("/completions", azure.ProxyWithConverter(stripPrefixConverter))
 		apiBasedRouter.Any("/chat/completions", azure.ProxyWithConverter(stripPrefixConverter))
 		apiBasedRouter.Any("/embeddings", azure.ProxyWithConverter(stripPrefixConverter))
+		apiBasedRouter.Any("/assistants/*action", azure.ProxyWithConverter(stripPrefixConverter))
+		apiBasedRouter.Any("/threads/*action", azure.ProxyWithConverter(stripPrefixConverter))
+		apiBasedRouter.Any("/files/*action", azure.ProxyWithConverter(stripPrefixConverter))
 	}
 }

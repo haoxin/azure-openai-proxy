@@ -3,13 +3,14 @@ package azure
 import (
 	"bytes"
 	"fmt"
-	"github.com/pkg/errors"
 	"log"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
 	"text/template"
+
+	"github.com/pkg/errors"
 )
 
 type DeploymentConfig struct {
@@ -42,9 +43,12 @@ func (c *StripPrefixConverter) Convert(req *http.Request, config *DeploymentConf
 	req.Host = config.EndpointUrl.Host
 	req.URL.Scheme = config.EndpointUrl.Scheme
 	req.URL.Host = config.EndpointUrl.Host
-	req.URL.Path = path.Join(fmt.Sprintf("/openai/deployments/%s", config.DeploymentName), strings.Replace(req.URL.Path, c.Prefix+"/", "/", 1))
+	if config.DeploymentName == "assistants" {
+		req.URL.Path = path.Join("/openai", strings.Replace(req.URL.Path, c.Prefix+"/", "/", 1))
+	} else {
+		req.URL.Path = path.Join(fmt.Sprintf("/openai/deployments/%s", config.DeploymentName), strings.Replace(req.URL.Path, c.Prefix+"/", "/", 1))
+	}
 	req.URL.RawPath = req.URL.EscapedPath()
-
 	query := req.URL.Query()
 	query.Add("api-version", config.ApiVersion)
 	req.URL.RawQuery = query.Encode()

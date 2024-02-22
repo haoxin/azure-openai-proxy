@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/stulzq/azure-openai-proxy/util"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"strings"
+
+	"github.com/stulzq/azure-openai-proxy/util"
 
 	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
@@ -122,62 +123,34 @@ func Proxy(c *gin.Context, requestConverter RequestConverter) {
 	c.Request.Body = io.NopCloser(&buf)
 
 	director := func(req *http.Request) {
+		/*
+			Step 2: Create a thread, Body is null
+			Step 7: List all the Assistants, Body is null
+			Step 5: Check the run status, Body is null
+			Step 6: Display the Assistant response, Body is null
+			Step 3: Create a message, Body is not null, but no model in the body
+			Step 4: Run the Assistant, Body is not null, but no model in the body
+			Step 1: Create an Assistant, Body is not null, and model in the body!!!
+
+		*/
 		if req.Body == nil {
-			util.SendError(c, errors.New("request body is empty"))
+			//log.Printf("request body is empty,treat it as Assistants request")
+			SetHeader(c, req)
+			ConvertURL(c, req, "assistants", requestConverter)
 			return
 		}
 		body, _ := io.ReadAll(req.Body)
 		req.Body = io.NopCloser(bytes.NewBuffer(body))
-
 		// get model from url params or body
-		model := c.Param("model")
-		if model == "" {
-			_model, err := sonic.Get(body, "model")
-			if err != nil {
-				util.SendError(c, errors.Wrap(err, "get model error"))
-				return
-			}
-			_modelStr, err := _model.String()
-			if err != nil {
-				util.SendError(c, errors.Wrap(err, "get model name error"))
-				return
-			}
-			model = _modelStr
-		}
-
-		// get deployment from request
-		deployment, err := GetDeploymentByModel(model)
-		if err != nil {
-			util.SendError(c, err)
-			return
-		}
-
-		// get auth token from header or deployemnt config
-		token := deployment.ApiKey
-		if token == "" {
-			rawToken := req.Header.Get("Authorization")
-			token = strings.TrimPrefix(rawToken, "Bearer ")
-		}
-		if token == "" {
-			util.SendError(c, errors.New("token is empty"))
-			return
-		}
-		req.Header.Set(AuthHeaderKey, token)
-		req.Header.Del("Authorization")
-
-		originURL := req.URL.String()
-		req, err = requestConverter.Convert(req, deployment)
-		if err != nil {
-			util.SendError(c, errors.Wrap(err, "convert request error"))
-			return
-		}
-		log.Printf("proxying request [%s] %s -> %s", model, originURL, req.URL.String())
+		model := GetModelName(c, body, req)
+		SetHeader(c, req)
+		ConvertURL(c, req, model, requestConverter)
 	}
 
 	proxy := &httputil.ReverseProxy{Director: director}
 	transport, err := util.NewProxyFromEnv()
 	if err != nil {
-		util.SendError(c, errors.Wrap(err, "get proxy error"))
+		util.SendError(c, errors.Wrap(err, "azure-openai-proxy: get proxy error"))
 		return
 	}
 	if transport != nil {
@@ -194,7 +167,9 @@ func Proxy(c *gin.Context, requestConverter RequestConverter) {
 	}
 
 	if c.Writer.Status() != 200 {
-		log.Printf("encountering error with body: %s", string(bodyBytes))
+		if bodyBytes != nil && len(bodyBytes) > 0 {
+			log.Printf("encountering error with body: %s", string(bodyBytes))
+		}
 	}
 }
 
@@ -204,4 +179,42 @@ func GetDeploymentByModel(model string) (*DeploymentConfig, error) {
 		return nil, errors.New(fmt.Sprintf("deployment config for %s not found", model))
 	}
 	return &deploymentConfig, nil
+}
+func SetHeader(c *gin.Context, req *http.Request) {
+	req.Header.Set(AuthHeaderKey, strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer "))
+	req.Header.Del("Authorization")
+}
+func ConvertURL(c *gin.Context, req *http.Request, ModelName string, requestConverter RequestConverter) {
+	originURL := req.URL.String()
+	deployment, err := GetDeploymentByModel(ModelName)
+	if err != nil {
+		util.SendError(c, errors.Wrap(err, "azure-openai-proxy: can't get assistants config, please add it in config.yaml"))
+		return
+	}
+	req, err = requestConverter.Convert(req, deployment)
+	if err != nil {
+		util.SendError(c, errors.Wrap(err, "azure-openai-proxy: convert request error"))
+		return
+	}
+	log.Printf("proxying request:  %s -> %s", originURL, req.URL.String())
+}
+
+func GetModelName(c *gin.Context, body []byte, req *http.Request) string {
+	if strings.Contains(req.URL.Path, "/assistants") || strings.Contains(req.URL.Path, "/threads") {
+		return "assistants"
+	}
+	model := c.Param("model")
+	if model == "" {
+		_model, err := sonic.Get(body, "model")
+		if err != nil {
+			//log.Printf("can't get model from request body, treat it as Assistants requests")
+			return "assistants"
+		}
+		_modelStr, err := _model.String()
+		if err != nil {
+			util.SendError(c, errors.Wrap(err, "azure-openai-proxy: get model name error"))
+		}
+		model = _modelStr
+	}
+	return model
 }
