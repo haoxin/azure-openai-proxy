@@ -135,7 +135,7 @@ func Proxy(c *gin.Context, requestConverter RequestConverter) {
 		*/
 		if req.Body == nil {
 			//log.Printf("request body is empty,treat it as Assistants request")
-			SetHeader(c, req)
+			SetHeader(c, req, "")
 			ConvertURL(c, req, "assistants", requestConverter)
 			return
 		}
@@ -143,7 +143,7 @@ func Proxy(c *gin.Context, requestConverter RequestConverter) {
 		req.Body = io.NopCloser(bytes.NewBuffer(body))
 		// get model from url params or body
 		model := GetModelName(c, body, req)
-		SetHeader(c, req)
+		SetHeader(c, req, model)
 		ConvertURL(c, req, model, requestConverter)
 	}
 
@@ -180,9 +180,18 @@ func GetDeploymentByModel(model string) (*DeploymentConfig, error) {
 	}
 	return &deploymentConfig, nil
 }
-func SetHeader(c *gin.Context, req *http.Request) {
-	req.Header.Set(AuthHeaderKey, strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer "))
-	req.Header.Del("Authorization")
+func SetHeader(c *gin.Context, req *http.Request, model string) {
+	if model != "" {
+		deployment, err := GetDeploymentByModel(model)
+		if err != nil {
+			util.SendError(c, errors.Wrap(err, "azure-openai-proxy: can't get assistants config, please add it in config.yaml"))
+			return
+		}
+		req.Header.Set(AuthHeaderKey, deployment.ApiKey)
+	} else {
+		req.Header.Set(AuthHeaderKey, strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer "))
+		req.Header.Del("Authorization")
+	}
 }
 func ConvertURL(c *gin.Context, req *http.Request, ModelName string, requestConverter RequestConverter) {
 	originURL := req.URL.String()
