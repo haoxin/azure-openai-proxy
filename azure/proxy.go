@@ -181,7 +181,8 @@ func GetDeploymentByModel(model string) (*DeploymentConfig, error) {
 	return &deploymentConfig, nil
 }
 func SetHeader(c *gin.Context, req *http.Request, model string) {
-	if model != "" {
+	//为了处理assistants的请求，需要在header中加入apikey
+	if model != "" && model == "assistants" {
 		deployment, err := GetDeploymentByModel(model)
 		if err != nil {
 			util.SendError(c, errors.Wrap(err, "azure-openai-proxy: can't get assistants config, please add it in config.yaml"))
